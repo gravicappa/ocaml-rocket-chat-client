@@ -1,0 +1,11 @@
+(library
+ (name rocket_chat_client)
+ (public_name rocket-chat-client)
+ (libraries lwt.unix
+            yojson
+            ppx_deriving_yojson
+            uri
+            cryptokit
+            rest-client
+            websocket-client)
+ (preprocess (pps lwt_ppx ppx_deriving_yojson)))
