@@ -93,9 +93,7 @@ let logout s =
 let login c =
   match%lwt Login.perform c with
   | Ok { Login.id; token } ->
-      let s = Session.{ id; token; server = c.server; valid = true } in
-      Lwt_main.at_exit (fun () -> logout s);
-      Lwt.return_ok s
+      Lwt.return_ok Session.{ id; token; server = c.server; valid = true }
   | Error err ->
       Lwt.return_error err
 
