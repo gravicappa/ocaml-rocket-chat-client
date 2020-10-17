@@ -388,7 +388,7 @@ module Message = struct
     let id = Printf.sprintf "message:%016x:%s" t (next_id ()) in
     { id; room; text; alias; groupable = Some true }
 
-  let send rc ?alias room text =
+  let send rc ?alias ~room text =
     let param = param_of room text alias |> param_to_yojson in
     let%lwt _ = Method.call rc "sendMessage" [| param |] in
     Lwt.return_unit

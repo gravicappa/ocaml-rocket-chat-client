@@ -72,7 +72,7 @@ end
 module Message: sig
   (** [send rc ~alias room text] sends [text] to [room] under [alias] (if
       specified). *)
-  val send: rocket_chat -> ?alias:string -> string -> string -> unit Lwt.t
+  val send: rocket_chat -> ?alias:string -> room:string -> string -> unit Lwt.t
 end
 
 val create :
