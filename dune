@@ -5,7 +5,7 @@
             yojson
             ppx_deriving_yojson
             uri
-            cryptokit
+            nocrypto
             rest-client
             websocket-client)
  (preprocess (pps lwt_ppx ppx_deriving_yojson)))

@@ -9,7 +9,6 @@ type t = rocket_chat
 
 let send_yojson channel yojson =
   let str = Yojson.Safe.to_string yojson in
-  (* Printf.eprintf ">> [%d] %s\n%!" (String.length str) str; *)
   WS.send_text channel (str ^ "\n")
 
 let next_id =
@@ -18,7 +17,6 @@ let next_id =
     let n = !count in
     count := Int64.add n 1L;
     Printf.sprintf "%Lx" n
-
 
 module Header = struct
   type t = {
@@ -83,12 +81,15 @@ module Method = struct
     |> send_yojson channel
 
   let call { channel; _ } name params =
-    let cond = Lwt_condition.create () in
-    let hdr = Header.create "method" in
-    Hashtbl.replace requests hdr.id cond;
-    send channel hdr name params;
-    let%lwt res = Lwt_condition.wait cond in
-    Lwt.return res
+    if WS.is_open channel then
+      let cond = Lwt_condition.create () in
+      let hdr = Header.create "method" in
+      Hashtbl.replace requests hdr.id cond;
+      send channel hdr name params;
+      let%lwt res = Lwt_condition.wait cond in
+      Lwt.return res
+    else
+      Lwt.return Response.End
 end
 
 module Connect = struct
@@ -110,16 +111,19 @@ module Connect = struct
   let message = { msg = "connect"; version = "1"; support = [| "1" |] }
 
   let connect channel =
-    let cond = Lwt_condition.create () in
-    Hashtbl.replace requests id cond;
-    message
-    |> to_yojson
-    |> send_yojson channel;
-    let%lwt res = Lwt_condition.wait cond in
-    match res with
-    | Response.Value _ -> Lwt.return_ok ()
-    | Error error -> Lwt.return_error error
-    | End -> Lwt.return_error "End of stream"
+    if WS.is_open channel then
+      let cond = Lwt_condition.create () in
+      Hashtbl.replace requests id cond;
+      message
+      |> to_yojson
+      |> send_yojson channel;
+      let%lwt res = Lwt_condition.wait cond in
+      match res with
+      | Response.Value _ -> Lwt.return_ok ()
+      | Error error -> Lwt.return_error error
+      | End -> Lwt.return_error "End of stream"
+    else
+      Lwt.return_error "End of stream"
 end
 
 module Subscription = struct
@@ -172,7 +176,7 @@ module Subscription = struct
 
   type response_field = {
     event_name: string [@key "eventName"];
-    args: Yojson.Safe.t array;
+    args: Yojson.Safe.t list;
   }
   [@@deriving of_yojson { strict = false }]
 
@@ -193,36 +197,45 @@ module Subscription = struct
     | Me -> self_id
     | Room id -> id
 
-  let message_of_response { fields = { event_name; args } } =
-    let recipient = recipient_of_string event_name in
-    let rec loop i =
-      if i < Array.length args then
-        match response_arg_of_yojson args.(i) with
-        | Ok { msg; rid; u = { username }; ts = { date }; t = None } ->
-            Some {
-              recipient;
-              from = username;
-              text = msg;
-              timestamp = date;
-              where = rid
-            }
-        | Ok _ -> loop (i + 1)
-        | Error _ -> loop (i + 1)
-      else None in
-    loop 0
+  let map_response recipient args proc =
+    let rec loop_inner = function
+      | [] -> ()
+      | a :: rest ->
+          match response_arg_of_yojson a with
+          | Ok { msg; rid; u = { username }; ts = { date }; _ } ->
+              proc {
+                recipient;
+                from = username;
+                text = msg;
+                timestamp = date;
+                where = rid
+              };
+              loop_inner rest
+          | Error _ ->
+              loop_inner rest in
+
+    let process_inner = function
+      | `List sub_list -> loop_inner sub_list
+      | _ -> () in
+
+    let rec loop_outer = function
+      | [] -> ()
+      | a :: rest ->
+          process_inner a;
+          loop_outer rest in
+
+    loop_outer args
 
   let dispatch yojson =
     match response_of_yojson yojson with
-    | Error _ -> Lwt.return_unit
-    | Ok resp ->
-        match message_of_response resp with
-        | None -> Lwt.return_unit
-        | Some message ->
-            match Hashtbl.find_opt requests message.recipient with
-            | None -> Lwt.return_unit
-            | Some cond ->
-                Lwt_condition.broadcast cond (Message message);
-                Lwt.return_unit
+    | Error err -> Lwt.return_unit
+    | Ok { fields = { event_name; args } } ->
+        let recipient = recipient_of_string event_name in
+        map_response recipient args (fun message ->
+          match Hashtbl.find_opt requests message.recipient with
+          | None -> ()
+          | Some cond -> Lwt_condition.broadcast cond (Message message));
+        Lwt.return_unit
 
   let close_all_listeners () =
     Hashtbl.to_seq_values requests
@@ -343,14 +356,21 @@ module Login = struct
   [@@deriving yojson { strict = false }]
 
   let sha256 str =
-    let h = Cryptokit.Hash.sha256 () in
-    h#add_string str;
-    h#result
+    Cstruct.of_string str
+    |> Nocrypto.Hash.SHA256.digest
+    |> Cstruct.to_string
 
-  let hex str =
-    let c = Cryptokit.Hexa.encode () in
-    c#put_string str;
-    c#get_string
+  let hex =
+    let table = "0123456789abcdef" in
+    fun str ->
+      let len = String.length str  in
+      let bytes = Bytes.create (len * 2) in
+      for i = 0 to len - 1 do
+        let c = Char.code str.[i] in
+        Bytes.set bytes (i * 2) table.[c lsr 4];
+        Bytes.set bytes (i * 2 + 1) table.[c land 0xf]
+      done;
+      Bytes.to_string bytes
 
   let login t ~username ~password =
     let digest = password |> sha256 |> hex in
@@ -427,12 +447,8 @@ let process_text_message channel text =
       Lwt.return_unit
   | Ok { msg = "connected"; id = "" } ->
       dispatch_by_id Connect.id yojson handle_connected
-  | Ok { msg = "changed"; _ } ->
-      (* Printf.eprintf "\n<< MESSAGE: %s\n\n%!" text; *)
-      Subscription.dispatch yojson
-  | Ok { id; _ } ->
-      (* Printf.eprintf "<< %s\n" text; *)
-      dispatch_by_id id yojson handle_response
+  | Ok { msg = "changed"; _ } -> Subscription.dispatch yojson
+  | Ok { id; _ } -> dispatch_by_id id yojson handle_response
 
 let close_all_listeners () =
   Hashtbl.to_seq_values requests

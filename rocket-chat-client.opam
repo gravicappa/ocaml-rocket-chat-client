@@ -7,7 +7,7 @@ build: ["dune" "build" "-j" jobs "-p" name]
 synopsis: "Simple incomplete Rocket.Chat client"
 depends: ["lwt"
           "lwt_ppx"
-          "cryptokit"
+          "nocrypto"
           "uri"
           "rest-client"
           "websocket-client"
