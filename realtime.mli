@@ -84,3 +84,5 @@ val close : rocket_chat -> unit Lwt.t
 val with_chat :
   settings:Settings.t ->
   string -> ((rocket_chat, string) result -> 'a Lwt.t) -> 'a Lwt.t
+
+val trace: (string -> unit) ref

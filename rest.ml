@@ -127,7 +127,7 @@ module Chat = struct
   }
   [@@deriving yojson { strict = false }]
 
-  let create ?alias ~channel ~text = { channel; text; alias }
+  let create ?alias ~channel text = { channel; text; alias }
 
   let send s m =
     message_to_yojson m

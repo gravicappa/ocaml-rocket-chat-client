@@ -7,6 +7,8 @@ type rocket_chat = {
 
 type t = rocket_chat
 
+let trace = ref (fun _ -> ())
+
 let send_yojson channel yojson =
   let str = Yojson.Safe.to_string yojson in
   WS.send_text channel (str ^ "\n")
@@ -228,7 +230,7 @@ module Subscription = struct
 
   let dispatch yojson =
     match response_of_yojson yojson with
-    | Error err -> Lwt.return_unit
+    | Error _ -> Lwt.return_unit
     | Ok { fields = { event_name; args } } ->
         let recipient = recipient_of_string event_name in
         map_response recipient args (fun message ->
@@ -439,6 +441,7 @@ let process_text_message channel text =
     `Assoc ["msg", `String "pong"]
     |> send_yojson channel in
 
+  !trace text;
   let yojson = Yojson.Safe.from_string text in
   match Header.of_yojson yojson with
   | Error _ -> Lwt.return_unit

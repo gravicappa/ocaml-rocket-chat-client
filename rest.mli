@@ -40,6 +40,6 @@ module Chat: sig
     text : string;
     alias : string option;
   }
-  val create: ?alias:string -> channel:string -> text:string -> message
+  val create: ?alias:string -> channel:string -> string -> message
   val send: Session.t -> message -> (unit, string) Result.result Lwt.t
 end
