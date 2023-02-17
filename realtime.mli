@@ -13,11 +13,12 @@ module Subscription: sig
   type t
 
   type message = {
+    id: string;
     recipient: recipient;
     where: string;
     from: string;
     text: string;
-    timestamp: int64;
+    timestamp: int;
   }
   
   val unsubscribe: t -> unit

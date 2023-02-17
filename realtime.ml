@@ -134,11 +134,12 @@ module Subscription = struct
     | Room of string
 
   type message = {
+    id: string;
     recipient: recipient;
     where: string;
     from: string;
     text: string;
-    timestamp: int64;
+    timestamp: int;
   }
 
   type event =
@@ -157,35 +158,40 @@ module Subscription = struct
   }
   [@@deriving yojson { strict = false }]
 
-  type response_from = {
-    username: string;
-  }
-  [@@deriving of_yojson { strict = false }]
+  module Response = struct
+    type from = {
+      username: string;
+    }
+    [@@deriving of_yojson { strict = false }]
 
-  type response_timestamp = {
-    date: int64 [@key "$date"];
-  }
-  [@@deriving of_yojson { strict = false }]
+    type timestamp = {
+      date: int [@key "$date"];
+    }
+    [@@deriving of_yojson { strict = false }]
 
-  type response_arg = {
-    msg: string;
-    u: response_from;
-    ts: response_timestamp;
-    rid: string;
-    t: string option [@default None];
-  }
-  [@@deriving of_yojson { strict = false }]
+    type arg = {
+      id: string [@key "_id"];
+      msg: string;
+      u: from;
+      ts: timestamp;
+      rid: string;
+      t: string option [@default None];
+      reactions: Yojson.Safe.t option [@default None];
+      replies: Yojson.Safe.t option [@default None];
+    }
+    [@@deriving of_yojson { strict = false }]
 
-  type response_field = {
-    event_name: string [@key "eventName"];
-    args: Yojson.Safe.t list;
-  }
-  [@@deriving of_yojson { strict = false }]
+    type field = {
+      event_name: string [@key "eventName"];
+      args: Yojson.Safe.t list;
+    }
+    [@@deriving of_yojson { strict = false }]
 
-  type response = {
-    fields: response_field;
-  }
-  [@@deriving of_yojson { strict = false }]
+    type t = {
+      fields: field;
+    }
+    [@@deriving of_yojson { strict = false }]
+  end
 
   let requests = Hashtbl.create 256
 
@@ -203,18 +209,19 @@ module Subscription = struct
     let rec loop_inner = function
       | [] -> ()
       | a :: rest ->
-          match response_arg_of_yojson a with
-          | Ok { msg; rid; u = { username }; ts = { date }; _ } ->
+          match Response.arg_of_yojson a with
+          | Ok ({ reactions = None; replies = None; _ } as response) ->
               proc {
+                id = response.id;
                 recipient;
-                from = username;
-                text = msg;
-                timestamp = date;
-                where = rid
+                from = response.u.username;
+                text = response.msg;
+                timestamp = response.ts.date;
+                where = response.rid;
               };
               loop_inner rest
-          | Error _ ->
-              loop_inner rest in
+          | Ok _ -> loop_inner rest
+          | Error _ -> loop_inner rest in
 
     let process_inner = function
       | `List sub_list -> loop_inner sub_list
@@ -229,7 +236,7 @@ module Subscription = struct
     loop_outer args
 
   let dispatch yojson =
-    match response_of_yojson yojson with
+    match Response.of_yojson yojson with
     | Error _ -> Lwt.return_unit
     | Ok { fields = { event_name; args } } ->
         let recipient = recipient_of_string event_name in
