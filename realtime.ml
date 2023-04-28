@@ -205,10 +205,11 @@ module Subscription = struct
     | Me -> self_id
     | Room id -> id
 
-  let map_response recipient args proc =
-    let rec loop_inner = function
+  let rec map_response recipient args proc =
+    match args with
       | [] -> ()
       | a :: rest ->
+          !trace (Yojson.Safe.to_string (`Assoc ["<< response.arg", a]));
           match Response.arg_of_yojson a with
           | Ok ({ reactions = None; replies = None; _ } as response) ->
               proc {
@@ -219,21 +220,9 @@ module Subscription = struct
                 timestamp = response.ts.date;
                 where = response.rid;
               };
-              loop_inner rest
-          | Ok _ -> loop_inner rest
-          | Error _ -> loop_inner rest in
-
-    let process_inner = function
-      | `List sub_list -> loop_inner sub_list
-      | _ -> () in
-
-    let rec loop_outer = function
-      | [] -> ()
-      | a :: rest ->
-          process_inner a;
-          loop_outer rest in
-
-    loop_outer args
+              map_response recipient rest proc
+          | Ok _ -> map_response recipient rest proc
+          | Error _ -> map_response recipient rest proc
 
   let dispatch yojson =
     match Response.of_yojson yojson with
