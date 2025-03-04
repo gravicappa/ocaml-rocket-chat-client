@@ -9,6 +9,6 @@ depends: ["lwt"
           "lwt_ppx"
           "uri"
           "http-lwt-client"
-          "websocket-client"
+          "websocket-client" {>= "0.3.0"}
           "yojson"
           "ppx_deriving_yojson"]
