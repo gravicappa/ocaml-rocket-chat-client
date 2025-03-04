@@ -6,6 +6,8 @@ module Settings: module type of Websocket_client.Settings
 type rocket_chat
 type t = rocket_chat
 
+type error = [`Msg of string]
+
 (** Subscription management *)
 module Subscription: sig
   type recipient = Me | Room of string
@@ -42,7 +44,7 @@ module Room : sig
   }
 
   (** Return an array of rooms available for current user *)
-  val available_rooms : rocket_chat -> (t array, string) Result.result Lwt.t
+  val available_rooms : rocket_chat -> (t array, string) result Lwt.t
 
   (** Get ID of a room by name *)
   val id_of_name : rocket_chat -> string -> string option Lwt.t
@@ -57,7 +59,7 @@ module Login: sig
   val login :
     rocket_chat ->
     username:string ->
-    password:string -> (t, string) Result.result Lwt.t
+    password:string -> (t, string) result Lwt.t
 
   val logout : rocket_chat -> unit Lwt.t
 
@@ -78,12 +80,14 @@ end
 
 val create :
   settings:Settings.t ->
-  string -> (rocket_chat, string) Result.result Lwt.t
+    string -> (rocket_chat, [> `Msg of string]) result Lwt.t
 
 val close : rocket_chat -> unit Lwt.t
 
 val with_chat :
   settings:Settings.t ->
-  string -> ((rocket_chat, string) result -> 'a Lwt.t) -> 'a Lwt.t
+    string ->
+      ((rocket_chat, [> `Msg of string]) result -> 'a Lwt.t)->
+        'a Lwt.t
 
 val trace: (string -> unit) ref

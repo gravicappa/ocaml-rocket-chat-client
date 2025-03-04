@@ -9,12 +9,7 @@ module Config = struct
   let create ~username ~password ~server = { username; password; server }
 end
 
-let receive proc response =
-  match%lwt response with
-  | Ok (_, json) -> Yojson.Safe.from_string json |> proc
-  | Error (code, err) ->
-      Printf.sprintf "HTTP: %d: %s" code err
-      |> Lwt.return_error
+type error = [ `Msg of string]
 
 module Session = struct
   type t = {
@@ -26,6 +21,34 @@ module Session = struct
 end
 
 let api_url server addr = Printf.sprintf "%s/api/v1/%s" server addr
+
+let ( let*? ) = Lwt_result.bind
+
+let request ?(headers = []) ?body method_ url =
+  let read _ buffer string =
+    Buffer.add_string buffer string;
+    Lwt.return buffer in
+
+  match%lwt
+    Http_lwt_client.request ~headers
+                            ~meth: method_
+                            ?body
+                            url
+                            read
+                            (Buffer.create 0)
+  with
+  | Ok (resp, buffer) when Http_lwt_client.Status.is_successful resp.status ->
+      begin match buffer |> Buffer.contents |> Yojson.Safe.from_string with
+      | yojson -> Lwt.return_ok yojson
+      | exception Yojson.Json_error e -> Lwt.return_error (`Msg e)
+      end
+  | Ok (resp, buffer) ->
+      let error = Format.asprintf "%a:%s:%s"
+                                  Http_lwt_client.Status.pp_hum resp.status
+                                  resp.reason
+                                  (Buffer.contents buffer) in
+      Lwt.return_error (`Msg error)
+  | Error _ as e -> Lwt.return e
 
 module Login = struct
   type request = {
@@ -46,18 +69,17 @@ module Login = struct
   }
   [@@deriving of_yojson]
 
-  let process yojson =
+  let perform config =
+    let body =
+      { username = config.Config.username; password = config.Config.password; }
+      |> request_to_yojson
+      |> Yojson.Safe.to_string in
+
+    let*? yojson = request `POST ~body (api_url config.Config.server "login") in
     match response_of_yojson yojson with
     | Ok { status = "success"; data = Some cred } -> Lwt.return_ok cred
-    | Ok _ -> Lwt.return_error "Unknown"
-    | Error err -> Lwt.return_error err
-
-  let perform config =
-    { username = config.Config.username; password = config.Config.password; }
-    |> request_to_yojson
-    |> Yojson.Safe.to_string
-    |> Rest_client.post (api_url config.Config.server "login")
-    |> receive process
+    | Ok _ -> Lwt.return_error (`Msg "unknown-error")
+    | Error err -> Lwt.return_error (`Msg err)
 end
 
 let url { Session.server; _ } addr = api_url server addr
@@ -65,23 +87,15 @@ let url { Session.server; _ } addr = api_url server addr
 let add_headers { Session.id; token; _ } headers =
   ("X-User-Id", id) :: ("X-Auth-Token", token) :: headers
 
-let setup_curl c =
-  Curl.set_verbose c false
-
-let settings = { Rest_client.default_settings with setup = setup_curl }
-
-let get s addr proc =
+let get s addr =
   let headers = add_headers s [] in
-  let url = url s addr in
-  Rest_client.get ~settings ~headers url
-  |> receive proc
+  request ~headers `GET (url s addr)
 
 let post s addr json =
   let headers = add_headers s [] in
   let url = url s addr in
-  let data = Yojson.Safe.to_string json in
-  Rest_client.post ~settings ~headers url data
-  |> receive Lwt.return_ok
+  let body = Yojson.Safe.to_string json in
+  request ~headers `POST ~body url
 
 let logout s =
   match s.Session.valid with
@@ -91,11 +105,8 @@ let logout s =
   | false -> Lwt.return_unit
 
 let login c =
-  match%lwt Login.perform c with
-  | Ok { Login.id; token } ->
-      Lwt.return_ok Session.{ id; token; server = c.server; valid = true }
-  | Error err ->
-      Lwt.return_error err
+  let*? { Login.id; token } = Login.perform c in
+  Lwt.return_ok Session.{ id; token; server = c.server; valid = true }
 
 let ignore_result resp =
   match%lwt resp with
@@ -115,8 +126,10 @@ module Group = struct
   [@@deriving yojson { strict = false }]
 
   let list s =
-    get s "groups.list" @@ fun a ->
-      groups_of_yojson a |> Lwt.return
+    let*? yojson = get s "groups.list" in
+    match groups_of_yojson yojson with
+    | Ok _ as ok -> Lwt.return ok
+    | Error error -> Lwt.return_error (`Msg error)
 end
 
 module Chat = struct

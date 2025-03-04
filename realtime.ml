@@ -7,6 +7,8 @@ type rocket_chat = {
 
 type t = rocket_chat
 
+type error = [`Msg of string]
+
 let trace = ref (fun _ -> ())
 
 let send_yojson channel yojson =
@@ -122,10 +124,10 @@ module Connect = struct
       let%lwt res = Lwt_condition.wait cond in
       match res with
       | Response.Value _ -> Lwt.return_ok ()
-      | Error error -> Lwt.return_error error
-      | End -> Lwt.return_error "End of stream"
+      | Error error -> Lwt.return_error (`Msg error)
+      | End -> Lwt.return_error (`Msg "end-of-stream")
     else
-      Lwt.return_error "End of stream"
+      Lwt.return_error (`Msg "end-of-stream")
 end
 
 module Subscription = struct
@@ -353,25 +355,13 @@ module Login = struct
   }
   [@@deriving yojson { strict = false }]
 
-  let sha256 str =
-    Cstruct.of_string str
-    |> Nocrypto.Hash.SHA256.digest
-    |> Cstruct.to_string
-
-  let hex =
-    let table = "0123456789abcdef" in
-    fun str ->
-      let len = String.length str  in
-      let bytes = Bytes.create (len * 2) in
-      for i = 0 to len - 1 do
-        let c = Char.code str.[i] in
-        Bytes.set bytes (i * 2) table.[c lsr 4];
-        Bytes.set bytes (i * 2 + 1) table.[c land 0xf]
-      done;
-      Bytes.to_string bytes
+  let sha256_hex str =
+    str
+    |> Digestif.SHA256.digest_string
+    |> Digestif.SHA256.to_hex
 
   let login t ~username ~password =
-    let digest = password |> sha256 |> hex in
+    let digest = password |> sha256_hex in
     let param = {
       user = { username };
       password = { digest; algorithm = "sha-256" };
@@ -483,7 +473,7 @@ let create ~settings uri =
 
   let uri = transform_uri uri in
   match%lwt WS.create ~settings uri process with
-  | Error error -> Lwt.return_error error
+  | Error _ as error -> Lwt.return error
   | Ok channel ->
       match%lwt Connect.connect channel with
       | Ok () -> Lwt.return_ok { channel }

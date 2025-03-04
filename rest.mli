@@ -13,13 +13,15 @@ module Config : sig
   val create : username:string -> password:string -> server:string -> t
 end
 
+type error = [ `Msg of string]
+
 module Session: sig
   type t
 end
 
 val logout: Session.t -> unit Lwt.t
 
-val login: Config.t -> (Session.t, string) Result.result Lwt.t
+val login: Config.t -> (Session.t, [> error]) result Lwt.t
 
 module Group: sig
   type t = {
@@ -31,7 +33,7 @@ module Group: sig
     groups: t list;
   }
 
-  val list : Session.t -> (groups, string) Result.result Lwt.t
+  val list : Session.t -> (groups, [> error]) result Lwt.t
 end
 
 module Chat: sig
@@ -41,5 +43,5 @@ module Chat: sig
     alias : string option;
   }
   val create: ?alias:string -> channel:string -> string -> message
-  val send: Session.t -> message -> (unit, string) Result.result Lwt.t
+  val send: Session.t -> message -> (unit, [> error]) result Lwt.t
 end
