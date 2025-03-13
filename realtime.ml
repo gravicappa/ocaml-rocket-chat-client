@@ -58,16 +58,15 @@ module Response = struct
     | Error of string
     | End
 
-  let wrap_lwt proc v =
-    let%lwt v = v in
-    Lwt.return (proc v)
-
-  let to_result proc = function
-    | Value v -> proc v
-    | Error err -> Result.Error err
-    | End -> Result.Error "End of stream"
-
-  let to_result_lwt proc v = wrap_lwt (to_result proc) v
+  let res parse a =
+    match%lwt a with
+    | Value v ->
+        begin match parse v with
+        | Ok _ as ok-> Lwt.return ok
+        | Error error -> Lwt.return_error (`Msg error)
+        end
+    | Error error -> Lwt.return_error (`Msg error)
+    | End -> Lwt.return_error (`Msg "end-of-stream")
 end
 
 let requests = Hashtbl.create 256
@@ -90,8 +89,7 @@ module Method = struct
       let hdr = Header.create "method" in
       Hashtbl.replace requests hdr.id cond;
       send channel hdr name params;
-      let%lwt res = Lwt_condition.wait cond in
-      Lwt.return res
+      Lwt_condition.wait cond
     else
       Lwt.return Response.End
 end
@@ -310,9 +308,10 @@ module Room = struct
   [@@deriving of_yojson { strict = false }]
 
   let available_rooms channel =
-    let%lwt r = Method.call channel "rooms/get" [| `Assoc ["$date", `Int 0] |]
-                |> Response.to_result_lwt resp_of_yojson in
-    match r with
+    match%lwt
+      Method.call channel "rooms/get" [| `Assoc ["$date", `Int 0] |]
+      |> Response.res resp_of_yojson
+    with
     | Ok { update; _ } -> Lwt.return_ok update
     | Error error -> Lwt.return_error error
 
@@ -361,13 +360,16 @@ module Login = struct
     |> Digestif.SHA256.to_hex
 
   let login t ~username ~password =
-    let digest = password |> sha256_hex in
     let param = {
       user = { username };
-      password = { digest; algorithm = "sha-256" };
+      password = {
+        digest = sha256_hex password;
+        algorithm = "sha-256"
+      };
     } in
+
     Method.call t "login" [| request_to_yojson param |]
-    |> Response.to_result_lwt of_yojson
+    |> Response.res of_yojson
 
   let logout t =
     let%lwt _ = Method.call t "logout" [| |] in

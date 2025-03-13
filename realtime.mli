@@ -44,7 +44,8 @@ module Room : sig
   }
 
   (** Return an array of rooms available for current user *)
-  val available_rooms : rocket_chat -> (t array, string) result Lwt.t
+  val available_rooms : rocket_chat ->
+    (t array, [> `Msg of string]) result Lwt.t
 
   (** Get ID of a room by name *)
   val id_of_name : rocket_chat -> string -> string option Lwt.t
@@ -59,7 +60,7 @@ module Login: sig
   val login :
     rocket_chat ->
     username:string ->
-    password:string -> (t, string) result Lwt.t
+      password:string -> (t, [`Msg of string]) result Lwt.t
 
   val logout : rocket_chat -> unit Lwt.t
 
@@ -69,7 +70,8 @@ module Login: sig
   val with_login :
     rocket_chat ->
     username:string ->
-    password:string -> ((t, string) result -> 'a Lwt.t) -> 'a Lwt.t
+      password:string ->
+        ((t, [> `Msg of string]) result -> 'a Lwt.t) -> 'a Lwt.t
 end
 
 module Message: sig
