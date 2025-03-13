@@ -389,14 +389,15 @@ module Message = struct
     room: string [@key "rid"];
     text: string [@key "msg"];
     alias: string option [@default None];
-    groupable: bool option [@default (Some false)];
+    groupable: bool [@default true];
   }
   [@@deriving to_yojson]
 
   let param_of room text alias =
     let t = Unix.time () |> int_of_float in
     let id = Printf.sprintf "message:%016x:%s" t (next_id ()) in
-    { id; room; text; alias; groupable = Some true }
+    ignore alias; (* ignore for now *)
+    { id; room; text; alias = None; groupable = true }
 
   let send rc ?alias ~room text =
     let param = param_of room text alias |> param_to_yojson in

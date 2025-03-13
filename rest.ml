@@ -29,6 +29,8 @@ let request ?(headers = []) ?body method_ url =
     Buffer.add_string buffer string;
     Lwt.return buffer in
 
+  let headers = ("Content-type", "application/json") :: headers in
+
   match%lwt
     Http_lwt_client.request ~headers
                             ~meth: method_
@@ -67,7 +69,7 @@ module Login = struct
     status: string;
     data: credentials option;
   }
-  [@@deriving of_yojson]
+  [@@deriving of_yojson { strict = false }]
 
   let perform config =
     let body =
