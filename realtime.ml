@@ -480,7 +480,9 @@ let create ~settings uri =
   | Ok channel ->
       match%lwt Connect.connect channel with
       | Ok () -> Lwt.return_ok { channel }
-      | Error error -> Lwt.return_error error
+      | Error error ->
+          WS.close channel;
+          Lwt.return_error error
 
 let close rc =
   let%lwt () = Login.logout rc in
