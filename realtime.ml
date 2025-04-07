@@ -9,7 +9,8 @@ type t = rocket_chat
 
 type error = [`Msg of string]
 
-let trace = ref (fun _ -> ())
+let trace: (((string -> unit) -> unit) -> unit) ref =
+  ref (fun _ -> ())
 
 let send_yojson channel yojson =
   let str = Yojson.Safe.to_string yojson in
@@ -209,7 +210,8 @@ module Subscription = struct
     match args with
       | [] -> ()
       | a :: rest ->
-          !trace (Yojson.Safe.to_string (`Assoc ["<< response.arg", a]));
+          !trace (fun p ->
+            p (Yojson.Safe.to_string (`Assoc ["<< response.arg", a])));
           match Response.arg_of_yojson a with
           | Ok ({ reactions = None; replies = None; _ } as response) ->
               proc {
@@ -430,7 +432,7 @@ let process_text_message channel text =
     `Assoc ["msg", `String "pong"]
     |> send_yojson channel in
 
-  !trace text;
+  !trace (fun p -> p text);
   let yojson = Yojson.Safe.from_string text in
   match Header.of_yojson yojson with
   | Error _ -> Lwt.return_unit

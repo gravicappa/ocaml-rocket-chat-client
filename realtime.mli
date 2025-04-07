@@ -92,4 +92,4 @@ val with_chat :
       ((rocket_chat, [> `Msg of string]) result -> 'a Lwt.t)->
         'a Lwt.t
 
-val trace: (string -> unit) ref
+val trace: (((string -> unit) -> unit) -> unit) ref
