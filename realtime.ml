@@ -305,7 +305,6 @@ module Room = struct
 
   type resp = {
     update: t array;
-    remove: string array;
   }
   [@@deriving of_yojson { strict = false }]
 
@@ -314,7 +313,7 @@ module Room = struct
       Method.call channel "rooms/get" [| `Assoc ["$date", `Int 0] |]
       |> Response.res resp_of_yojson
     with
-    | Ok { update; _ } -> Lwt.return_ok update
+    | Ok { update } -> Lwt.return_ok update
     | Error error -> Lwt.return_error error
 
   let id_of_name t room =
@@ -329,7 +328,9 @@ module Room = struct
             | _ -> find (i + 1)
           else Lwt.return_none in
         find 0
-    | Error _ -> Lwt.return_none
+    | Error (`Msg error) ->
+        !trace (fun p -> p @@ Printf.sprintf "(get-rooms-error %s)" error);
+        Lwt.return_none
 end
 
 module Login = struct
